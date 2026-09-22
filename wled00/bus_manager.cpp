@@ -1142,10 +1142,19 @@ BusHub75Matrix::BusHub75Matrix(BusConfig &bc) : Bus(bc.type, bc.start, bc.autoWh
         // is not part of it. Keep the mapping only while it still describes what is configured;
         // otherwise drop it, so the block below builds the right one and switching the
         // arrangement off falls back to the plain chain instead of rendering through the old map.
-        // Not deleted on purpose: see the note next to the disabled delete in cleanup().
+        // The old mapping is freed here: nothing else references it once the static pointer is
+        // cleared. GCC warns because VirtualMatrixPanel has a virtual method but no virtual
+        // destructor - that warning is about deleting a *derived* object through this pointer.
+        // This is the exact type, the class has no destructor and owns nothing but a few
+        // integers and a pointer to the display, so the delete is well-defined.
         if (fourScanPanel
             && !((activeVRows == vRows) && (activeVCols == vCols) && (activeVChainType == vType))) {
+          #pragma GCC diagnostic push
+          #pragma GCC diagnostic ignored "-Wdelete-non-virtual-dtor"
+          delete fourScanPanel;
+          #pragma GCC diagnostic pop
           fourScanPanel = nullptr;
+          activeFourScanPanel = nullptr;
         }
 
         if (!fourScanPanel && ((vRows > 1) || (vCols > 1))) {
@@ -1328,8 +1337,13 @@ void BusHub75Matrix::cleanup() {
   delay(30); // give some time to finish DMA
   deallocatePins();
   _len = 0;
-  //if (fourScanPanel != nullptr) delete fourScanPanel;  // warning: deleting object of polymorphic class type 'VirtualMatrixPanel' which has non-virtual destructor might cause undefined behavior
 #if !defined(CONFIG_IDF_TARGET_ESP32S3) // S3: don't delete, as we want to re-use the driver later
+  // WLEDMM: the mapping goes with the display it was built on. Same exact-type delete as in
+  // begin(), see the note there for why the -Wdelete-non-virtual-dtor warning does not apply.
+  #pragma GCC diagnostic push
+  #pragma GCC diagnostic ignored "-Wdelete-non-virtual-dtor"
+  if (fourScanPanel) delete fourScanPanel;
+  #pragma GCC diagnostic pop
   if (display) delete display;
   activeDisplay = nullptr;
   activeFourScanPanel = nullptr;
